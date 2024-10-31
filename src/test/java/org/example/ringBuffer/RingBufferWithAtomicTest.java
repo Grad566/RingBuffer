@@ -6,16 +6,15 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class RingBufferTest {
-    private RingBuffer<Integer> ringBuffer;
+class RingBufferWithAtomicTest {
+    private RingBufferWithAtomic<Integer> ringBuffer;
 
     @BeforeEach
     public void setUp() {
-        ringBuffer = new RingBuffer<>(5);
+        ringBuffer = new RingBufferWithAtomic<>(5);
     }
 
     @Test
@@ -44,38 +43,48 @@ class RingBufferTest {
     }
 
     @Test
-    public void testWith2Threads() throws InterruptedException {
-        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+    public void testConcurrentPutAndGet() throws InterruptedException {
+        int numProducers = 3;
+        int numConsumers = 3;
+        int itemsPerProducer = 10;
 
-            CountDownLatch latch = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(numProducers + numConsumers);
+        CountDownLatch latch = new CountDownLatch(numProducers + numConsumers);
+
+        // Producers
+        for (int i = 0; i < numProducers; i++) {
             executor.submit(() -> {
                 try {
-                    latch.await();
-                    for (int i = 0; i < 15; i++) {
-                        ringBuffer.put(i);
+                    for (int j = 0; j < itemsPerProducer; j++) {
+                        ringBuffer.put(j);
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                } finally {
+                    latch.countDown();
                 }
             });
+        }
+
+        // Consumers
+        for (int i = 0; i < numConsumers; i++) {
             executor.submit(() -> {
                 try {
-                    latch.await();
-                    for (int i = 0; i < 15; i++) {
+                    for (int j = 0; j < itemsPerProducer; j++) {
                         ringBuffer.get();
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                } finally {
+                    latch.countDown();
                 }
             });
-
-            latch.countDown();
-            latch.countDown();
-
-            executor.shutdown();
-            executor.awaitTermination(10, TimeUnit.SECONDS);
-            assertTrue(ringBuffer.isEmpty());
         }
+
+        latch.await();
+        executor.shutdown();
+
+        assertTrue(ringBuffer.isEmpty());
     }
 
 }
